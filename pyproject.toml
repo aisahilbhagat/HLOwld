@@ -8,13 +8,15 @@ version = "0.1.0"
 description = "Portable Language Manager"
 requires-python = ">=3.10"
 dependencies = [
-    "rich",
-    "questionary",
+    "rich>=13.0",
+    "questionary>=2.0",
 ]
 
 [project.scripts]
 hlowld = "hlowld.cli:main"
 
+[tool.setuptools.packages.find]
+include = ["hlowld", "hlowld.*"]
 
-[tool.setuptools]
-packages = ["hlowld"]
+[tool.setuptools.package-data]
+hlowld = ["bin/*"]

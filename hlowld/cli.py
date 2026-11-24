@@ -8,7 +8,9 @@ import questionary
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 
+from hlowld import __version__
 from hlowld.config import LANGUAGES, check_os
 from hlowld.installer import (
     clean_caches,
@@ -25,6 +27,33 @@ console = Console()
 def _header() -> None:
     console.print(
         Panel.fit("hlowld v0.1.0 — Portable Language Manager", style="bold cyan")
+    )
+
+
+def _has_selectable_choice(choices: list[questionary.Choice]) -> bool:
+    """Return True when at least one choice is enabled."""
+    return any(not getattr(choice, "disabled", False) for choice in choices)
+
+
+def _print_help() -> None:
+    entries = [
+        ("hlowld", "Open interactive toolchain manager"),
+        ("hlowld <file> [args...]", "Compile & run .rs, .c, .cpp, .ts, .js"),
+        ("hlowld --raw <file> [args...]", "Run with full native compiler output"),
+        ("hlowld watch <file> [args...]", "Auto-rerun on file or dependency changes"),
+        ("hlowld new <file>", "Scaffold a starter file"),
+        ("hlowld clean [file | --all]", "Clear binary/toolchain caches or full reset"),
+        ("hlowld --version", "Show version"),
+    ]
+
+    body = Text()
+    body.append("Usage:\n\n", style="bold white")
+    for usage, description in entries:
+        body.append(f"  {usage}\n", style="bold cyan")
+        body.append(f"      {description}\n", style="dim")
+
+    console.print(
+        Panel(body, title="hlowld help", border_style="cyan", padding=(1, 2))
     )
 
 
@@ -48,14 +77,17 @@ def _status_table() -> None:
     console.print(table)
 
 
-def _find_engine_binary() -> Path | None:
+def _engine_binary_candidates() -> list[Path]:
     exe_name = "hlowld-engine.exe" if sys.platform == "win32" else "hlowld-engine"
-    repo_root = Path(__file__).resolve().parent.parent
-    candidates = [
-        repo_root / "engine" / "target" / "release" / exe_name,
-        Path.home() / ".hlowld" / "bin" / exe_name,
+    package_dir = Path(__file__).resolve().parent
+    return [
+        package_dir / "bin" / exe_name,
+        package_dir.parent / "engine" / "target" / "release" / exe_name,
     ]
-    for candidate in candidates:
+
+
+def _find_engine_binary() -> Path | None:
+    for candidate in _engine_binary_candidates():
         if candidate.is_file():
             return candidate
     return None
@@ -64,10 +96,20 @@ def _find_engine_binary() -> Path | None:
 def _run_engine(args: list[str]) -> None:
     engine_bin = _find_engine_binary()
     if engine_bin is None:
+        searched = "\n".join(f"  - {path}" for path in _engine_binary_candidates())
         console.print(
-            "[red]Rust engine not built yet. Run: cd engine && cargo build --release[/red]"
+            "[red]hlowld engine binary not found.[/red]\n"
+            f"[yellow]Searched:[/yellow]\n{searched}\n"
+            "[yellow]Build it with:[/yellow] cd engine && cargo build --release\n"
+            "[yellow]Then bundle it under hlowld/bin and reinstall:[/yellow] pip install ."
         )
         sys.exit(1)
+
+    if sys.platform != "win32":
+        try:
+            engine_bin.chmod(engine_bin.stat().st_mode | 0o111)
+        except OSError:
+            pass
 
     try:
         result = subprocess.run([str(engine_bin), *args])
@@ -140,6 +182,12 @@ def main() -> None:
 
     cli_args = sys.argv[1:]
     if cli_args:
+        if cli_args[0] in {"-h", "--help"}:
+            _print_help()
+            sys.exit(0)
+        if cli_args[0] in {"-V", "--version"}:
+            console.print(f"hlowld {__version__}")
+            sys.exit(0)
         if cli_args[0] == "clean":
             _clean_command(cli_args[1:])
             sys.exit(0)
@@ -176,6 +224,10 @@ def main() -> None:
                 else:
                     choices.append(questionary.Choice(title=label, value=lang_key))
 
+            if not _has_selectable_choice(choices):
+                console.print("[green]All languages are already installed![/green]")
+                continue
+
             selected = questionary.checkbox(
                 "Select languages to install:",
                 choices=choices,
@@ -209,6 +261,11 @@ def main() -> None:
                 questionary.Choice(title=LANGUAGES[k]["display"], value=k)
                 for k in installed
             ]
+
+            if not _has_selectable_choice(choices):
+                console.print("[yellow]No languages are available to remove.[/yellow]")
+                continue
+
             selected = questionary.checkbox(
                 "Select languages to remove:",
                 choices=choices,

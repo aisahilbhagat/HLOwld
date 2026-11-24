@@ -1,0 +1,2 @@
+# Bundled engine binaries live here (hlowld-engine.exe / hlowld-engine).
+# They are included in wheels via [tool.setuptools.package-data].
