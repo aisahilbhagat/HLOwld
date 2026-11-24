@@ -10,7 +10,14 @@ from rich.panel import Panel
 from rich.table import Table
 
 from hlowld.config import LANGUAGES, check_os
-from hlowld.installer import get_installed_languages, install_language, uninstall_language
+from hlowld.installer import (
+    clean_caches,
+    clean_file_cache,
+    get_installed_languages,
+    install_language,
+    uninstall_all,
+    uninstall_language,
+)
 
 console = Console()
 
@@ -62,8 +69,70 @@ def _run_engine(args: list[str]) -> None:
         )
         sys.exit(1)
 
-    result = subprocess.run([str(engine_bin), *args])
+    try:
+        result = subprocess.run([str(engine_bin), *args])
+    except KeyboardInterrupt:
+        sys.exit(130)
     sys.exit(result.returncode)
+
+
+def _format_size(size: int) -> str:
+    value = float(size)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if value < 1024 or unit == "TB":
+            return f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{size} B"
+
+
+def _print_cache_clean_result(bytes_freed: int, cleaned: list[str]) -> None:
+    if bytes_freed == 0:
+        console.print("[green]Already clean (0 MB freed).[/green]")
+        return
+    labels = ", ".join(cleaned) if cleaned else "cache"
+    console.print(
+        f"[green]Cleaned {_format_size(bytes_freed)} across: {labels}[/green]"
+    )
+
+
+def _clean_command(args: list[str]) -> None:
+    if "--all" in args:
+        assume_yes = any(arg in {"-y", "--yes"} for arg in args)
+        if not assume_yes:
+            assume_yes = bool(
+                questionary.confirm(
+                    "Remove ~/.hlowld and all installed toolchains?"
+                ).ask()
+            )
+        if not assume_yes:
+            console.print("[yellow]Clean reset cancelled.[/yellow]")
+            return
+        uninstall_all()
+        console.print("[green]Removed ~/.hlowld and all installed toolchains.[/green]")
+        return
+
+    positional = [arg for arg in args if arg not in {"-y", "--yes"}]
+    if not positional:
+        bytes_freed, cleaned = clean_caches()
+        _print_cache_clean_result(bytes_freed, cleaned)
+        return
+
+    filename = positional[0]
+    try:
+        removed, bytes_freed = clean_file_cache(filename)
+    except FileNotFoundError:
+        console.print(f"[red]File not found: {filename}[/red]")
+        sys.exit(1)
+    except OSError as exc:
+        console.print(f"[red]Failed to clean cache: {exc}[/red]")
+        sys.exit(1)
+
+    if removed:
+        console.print(
+            f"[green]Cleared cached binary for {filename} ({_format_size(bytes_freed)})[/green]"
+        )
+    else:
+        console.print(f"[yellow]No cached binary found for {filename}.[/yellow]")
 
 
 def main() -> None:
@@ -71,6 +140,9 @@ def main() -> None:
 
     cli_args = sys.argv[1:]
     if cli_args:
+        if cli_args[0] == "clean":
+            _clean_command(cli_args[1:])
+            sys.exit(0)
         _run_engine(cli_args)
 
     _header()
@@ -82,6 +154,8 @@ def main() -> None:
                 "Install languages",
                 "Remove languages",
                 "View installed status",
+                "Clean Caches (Free Disk Space)",
+                "Uninstall Everything (Clean Reset)",
                 "Exit",
             ],
         ).ask()
@@ -157,6 +231,22 @@ def main() -> None:
 
         elif choice == "View installed status":
             _status_table()
+
+        elif choice == "Clean Caches (Free Disk Space)":
+            bytes_freed, cleaned = clean_caches()
+            _print_cache_clean_result(bytes_freed, cleaned)
+
+        elif choice == "Uninstall Everything (Clean Reset)":
+            confirmed = questionary.confirm(
+                "This will permanently delete all hlowld toolchains, caches, and state. Continue?"
+            ).ask()
+            if confirmed:
+                uninstall_all()
+                console.print(
+                    "[green]Clean reset complete. ~/.hlowld was completely removed.[/green]"
+                )
+                break
+            console.print("[yellow]Clean reset cancelled.[/yellow]")
 
         elif choice == "Exit":
             console.print("[green]Goodbye![/green]")

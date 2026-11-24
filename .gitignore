@@ -1,12 +1,29 @@
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
 *.egg-info/
 .venv/
+venv/
 dist/
 build/
+.pytest_cache/
+
+# Rust (keep Cargo.lock for binary reproducibility)
+target/
 engine/target/
-hello.rs
-hello.c
-hello.cpp
-hello.ts
-hello.js
+**/*.rs.bk
+
+# Compiled binaries & scratch test files
+*.exe
+*.out
+*.o
+*.pdb
+hello.*
+test.*
+
+# OS & Editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
